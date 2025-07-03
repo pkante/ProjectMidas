@@ -70,31 +70,87 @@ function createOverlayWindow() {
 ipcMain.on('expand-to-chat', () => {
   console.log('Received expand-to-chat event');
   if (!overlayWindow) return;
+  
   const { width, height } = screen.getPrimaryDisplay().workAreaSize;
-  overlayWindow.setBounds({
+  const targetBounds = {
     width: CHAT_WIDTH,
     height: CHAT_HEIGHT,
     x: width - CHAT_WIDTH - 20,
     y: height - CHAT_HEIGHT - 40,
-  });
+  };
+  
+  // Get current bounds
+  const currentBounds = overlayWindow.getBounds();
+  
+  // Load the chat UI content immediately
   overlayWindow.setResizable(true);
   overlayWindow.setFocusable(true);
   overlayWindow.loadFile(path.resolve(__dirname, '../../../public/chat-overlay.html'));
+  
+  // Animate the transition
+  const steps = 20;
+  const stepDuration = 10; // milliseconds per step
+  
+  for (let i = 0; i <= steps; i++) {
+    setTimeout(() => {
+      if (!overlayWindow) return;
+      
+      const progress = i / steps;
+      const easeProgress = 1 - Math.pow(1 - progress, 3); // Ease-out cubic
+      
+      const newBounds = {
+        width: Math.round(currentBounds.width + (targetBounds.width - currentBounds.width) * easeProgress),
+        height: Math.round(currentBounds.height + (targetBounds.height - currentBounds.height) * easeProgress),
+        x: Math.round(currentBounds.x + (targetBounds.x - currentBounds.x) * easeProgress),
+        y: Math.round(currentBounds.y + (targetBounds.y - currentBounds.y) * easeProgress),
+      };
+      
+      overlayWindow.setBounds(newBounds);
+    }, i * stepDuration);
+  }
 });
 
 ipcMain.on('collapse-to-icon', () => {
   console.log('Received collapse-to-icon event');
   if (!overlayWindow) return;
+  
   const { x, y } = getDefaultIconPosition();
-  overlayWindow.setBounds({
+  const targetBounds = {
     width: ICON_SIZE,
     height: ICON_SIZE,
     x,
     y,
-  });
+  };
+  
+  // Get current bounds
+  const currentBounds = overlayWindow.getBounds();
+  
+  // Load the icon content immediately
   overlayWindow.setResizable(true);
   overlayWindow.setFocusable(false);
   overlayWindow.loadFile(path.resolve(__dirname, '../../../public/overlay.html'));
+  
+  // Animate the transition
+  const steps = 20;
+  const stepDuration = 10; // milliseconds per step
+  
+  for (let i = 0; i <= steps; i++) {
+    setTimeout(() => {
+      if (!overlayWindow) return;
+      
+      const progress = i / steps;
+      const easeProgress = 1 - Math.pow(1 - progress, 3); // Ease-out cubic
+      
+      const newBounds = {
+        width: Math.round(currentBounds.width + (targetBounds.width - currentBounds.width) * easeProgress),
+        height: Math.round(currentBounds.height + (targetBounds.height - currentBounds.height) * easeProgress),
+        x: Math.round(currentBounds.x + (targetBounds.x - currentBounds.x) * easeProgress),
+        y: Math.round(currentBounds.y + (targetBounds.y - currentBounds.y) * easeProgress),
+      };
+      
+      overlayWindow.setBounds(newBounds);
+    }, i * stepDuration);
+  }
 });
 
 // --- OpenAI ChatGPT Integration ---
