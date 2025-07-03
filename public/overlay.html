@@ -80,19 +80,11 @@
       if (!moved) {
         // Treat as click
         console.log('Icon clicked!');
-        const openChat = () => {
-          if (window.electronAPI && window.electronAPI.sendExpandToChat) {
-            window.electronAPI.sendExpandToChat();
-          } else if (window.ipcRenderer) {
-            window.ipcRenderer.send('expand-to-chat');
-          }
-        };
-        if (window.electronAPI && window.electronAPI.captureAndSaveScreenshot) {
-          window.electronAPI.captureAndSaveScreenshot()
-            .catch(() => {})
-            .finally(openChat);
-        } else {
-          openChat();
+        // Open chat without capturing screenshot
+        if (window.electronAPI && window.electronAPI.sendExpandToChat) {
+          window.electronAPI.sendExpandToChat();
+        } else if (window.ipcRenderer) {
+          window.ipcRenderer.send('expand-to-chat');
         }
       }
     }

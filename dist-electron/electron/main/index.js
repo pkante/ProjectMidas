@@ -3,6 +3,10 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
     return (mod && mod.__esModule) ? mod : { "default": mod };
 };
 Object.defineProperty(exports, "__esModule", { value: true });
+// Load environment variables from .env file before anything else
+require('dotenv').config();
+console.log('Environment variables loaded from .env file');
+console.log('OPENAI_API_KEY available:', !!process.env.OPENAI_API_KEY);
 const electron_1 = require("electron");
 const path_1 = __importDefault(require("path"));
 const fetch = require('node-fetch');
@@ -10,7 +14,8 @@ const fs = require('fs');
 const pathModule = require('path');
 const { dialog, shell } = require('electron');
 const child_process = require('child_process');
-const { contextBridge, ipcRenderer, desktopCapturer } = require('electron');
+const { desktopCapturer } = require('electron');
+// const { contextBridge, ipcRenderer, desktopCapturer } = require('electron');
 const ICON_SIZE = 64;
 const CHAT_WIDTH = 400;
 const CHAT_HEIGHT = 500;
@@ -36,6 +41,11 @@ function createOverlayWindow() {
             preload: path_1.default.join(__dirname, '../../../dist-electron/preload/index.js'),
             nodeIntegration: false,
             contextIsolation: true,
+            webSecurity: true,
+            allowRunningInsecureContent: false,
+            experimentalFeatures: false,
+            // Enable screen capture APIs
+            enableBlinkFeatures: 'DesktopCapture',
         },
     });
     overlayWindow.loadFile(path_1.default.resolve(__dirname, '../../../public/overlay.html'));
@@ -89,9 +99,10 @@ electron_1.ipcMain.on('collapse-to-icon', () => {
 });
 // --- OpenAI ChatGPT Integration ---
 electron_1.ipcMain.on('chat:send', async (event, msg, screenshotBase64) => {
+    // Always load the API key from environment variables
     const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
     if (!OPENAI_API_KEY) {
-        event.sender.send('chat:message', 'Error: OpenAI API key not set.');
+        event.sender.send('chat:message', 'Error: OpenAI API key not set. Please add it to your .env file.');
         return;
     }
     try {
@@ -101,10 +112,6 @@ electron_1.ipcMain.on('chat:send', async (event, msg, screenshotBase64) => {
         ];
         let data, reply;
         if (screenshotBase64) {
-            // Save screenshot to disk for debugging
-            const base64Data = screenshotBase64.replace(/^data:image\/png;base64,/, '');
-            const debugPath = pathModule.join(__dirname, '../../screenshot-debug.png');
-            fs.writeFileSync(debugPath, base64Data, 'base64');
             // Send screenshot as image to OpenAI vision endpoint
             const response = await fetch('https://api.openai.com/v1/chat/completions', {
                 method: 'POST',
@@ -120,7 +127,7 @@ electron_1.ipcMain.on('chat:send', async (event, msg, screenshotBase64) => {
                             role: 'user',
                             content: [
                                 { type: 'text', text: msg },
-                                { type: 'image_url', image_url: { "url": `data:image/png;base64,${base64Data}` } }
+                                { type: 'image_url', image_url: { "url": `data:image/png;base64,${screenshotBase64.replace(/^data:image\/png;base64,/, '')}` } }
                             ]
                         }
                     ],
@@ -196,19 +203,38 @@ electron_1.ipcMain.on('show-screen-permission-dialog', () => {
         }
     });
 });
-electron_1.ipcMain.on('save-debug-screenshot', (_event, dataUrl) => {
+// Screenshot capture handlers
+electron_1.ipcMain.handle('capture-screenshot', async () => {
     try {
-        const base64Data = dataUrl.replace(/^data:image\/png;base64,/, '');
-        const debugDir = pathModule.join(__dirname, '../../debug-screens');
-        if (!fs.existsSync(debugDir)) {
-            fs.mkdirSync(debugDir);
+        const primaryDisplay = electron_1.screen.getPrimaryDisplay();
+        const sources = await desktopCapturer.getSources({
+            types: ['screen'],
+            thumbnailSize: {
+                width: primaryDisplay.size.width,
+                height: primaryDisplay.size.height
+            }
+        });
+        if (sources.length === 0)
+            return null;
+        // Find the source that matches the primary display
+        let screenSource = sources[0];
+        for (const source of sources) {
+            if (source.display_id === `${primaryDisplay.id}`) {
+                screenSource = source;
+                break;
+            }
         }
-        const filename = `screenshot-${Date.now()}.png`;
-        const debugPath = pathModule.join(debugDir, filename);
-        fs.writeFileSync(debugPath, base64Data, 'base64');
-        console.log('Saved debug screenshot:', debugPath);
+        const dataUrl = screenSource.thumbnail.toDataURL();
+        // Permission check: if screenshot is too small, likely permission issue
+        if (!dataUrl || dataUrl.length < 10000) {
+            console.log('Screenshot too small, likely permission issue');
+            return null;
+        }
+        console.log('Screenshot captured successfully, size:', dataUrl.length);
+        return dataUrl;
     }
-    catch (err) {
-        console.error('Failed to save debug screenshot:', err);
+    catch (error) {
+        console.error('Error capturing screenshot:', error);
+        return null;
     }
 });

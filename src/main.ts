@@ -44,7 +44,6 @@ declare global {
       moveWindow: (x: number, y: number) => void;
       getCurrentWindowPositionSync: () => Promise<{ x: number; y: number }>;
       captureScreenshot: () => Promise<string | null>;
-      captureAndSaveScreenshot: () => Promise<string | null>;
     };
   }
 } 

@@ -69,6 +69,25 @@
     #chat-form button:hover {
       background: #535bf2;
     }
+    #share-screen-btn {
+      padding: 8px 16px;
+      border-radius: 8px;
+      border: none;
+      background: #28a745;
+      color: #fff;
+      font-weight: bold;
+      font-size: 0.9rem;
+      cursor: pointer;
+      transition: background 0.2s;
+      margin-bottom: 8px;
+    }
+    #share-screen-btn:hover {
+      background: #218838;
+    }
+    #share-screen-btn:disabled {
+      background: #6c757d;
+      cursor: not-allowed;
+    }
     #loading {
       color: #aaa;
       font-style: italic;
@@ -81,6 +100,12 @@
       margin: 8px 0 0 0;
       padding-left: 8px;
     }
+    .success {
+      color: #28a745;
+      font-style: italic;
+      margin: 8px 0 0 0;
+      padding-left: 8px;
+    }
   </style>
 </head>
 <body>
@@ -88,6 +113,7 @@
     <button id="close-btn">×</button>
     <div id="chat-window"></div>
     <div id="loading" style="display:none;">Sending...</div>
+    <button id="share-screen-btn">Share my screen</button>
     <form id="chat-form">
       <input id="chat-input" type="text" placeholder="Type a message..." autocomplete="off" />
       <button type="submit">Send</button>
@@ -98,36 +124,76 @@
     const chatForm = document.getElementById('chat-form');
     const chatInput = document.getElementById('chat-input');
     const loadingDiv = document.getElementById('loading');
+    const shareScreenBtn = document.getElementById('share-screen-btn');
     let screenshotBase64 = null;
+    let screenShared = false;
 
-    // Capture screenshot on chat UI open
-    (async () => {
-      if (window.electronAPI && window.electronAPI.captureScreenshot) {
-        screenshotBase64 = await window.electronAPI.captureScreenshot();
-        if (!screenshotBase64) {
-          appendMessage('Error', 'Failed to capture screenshot.', true);
-        } else {
-          console.log('Screenshot captured.');
-        }
-      }
-    })();
-
-    function appendMessage(sender, text, isError = false) {
+    function appendMessage(sender, text, isError = false, isSuccess = false) {
       const msgDiv = document.createElement('div');
       msgDiv.innerHTML = `<b>${sender}:</b> ${text}`;
       if (isError) msgDiv.classList.add('error');
+      if (isSuccess) msgDiv.classList.add('success');
       chatWindow.appendChild(msgDiv);
       chatWindow.scrollTop = chatWindow.scrollHeight;
     }
-    chatForm.addEventListener('submit', (e) => {
+
+    // Share screen button functionality
+    shareScreenBtn.addEventListener('click', async () => {
+      try {
+        shareScreenBtn.disabled = true;
+        shareScreenBtn.textContent = 'Capturing...';
+        console.log('=== SHARE SCREEN BUTTON CLICKED ===');
+        
+        if (window.electronAPI && window.electronAPI.captureScreenshot) {
+          console.log('Attempting to capture screenshot...');
+          screenshotBase64 = await window.electronAPI.captureScreenshot();
+          console.log('Screenshot result:', screenshotBase64 ? 'captured' : 'failed');
+          
+          if (screenshotBase64) {
+            screenShared = true;
+            shareScreenBtn.textContent = 'Screen shared ✓';
+            shareScreenBtn.style.background = '#28a745';
+            appendMessage('System', 'Screen captured and shared! You can now ask questions about what you see. Click "Share my screen" again to capture a new screenshot.', false, true);
+            
+            // Reset button after a short delay to allow multiple captures
+            setTimeout(() => {
+              shareScreenBtn.disabled = false;
+              shareScreenBtn.textContent = 'Share my screen';
+              shareScreenBtn.style.background = '#28a745';
+            }, 2000);
+          } else {
+            appendMessage('Error', 'Failed to capture screenshot. Please try again.', true);
+            shareScreenBtn.disabled = false;
+            shareScreenBtn.textContent = 'Share my screen';
+          }
+        } else {
+          console.error('Required Electron APIs not available in renderer');
+          appendMessage('Error', 'Electron API not available.', true);
+          shareScreenBtn.disabled = false;
+          shareScreenBtn.textContent = 'Share my screen';
+        }
+      } catch (err) {
+        console.error('Failed to capture screenshot:', err);
+        appendMessage('Error', 'Failed to capture screenshot. Please try again.', true);
+        shareScreenBtn.disabled = false;
+        shareScreenBtn.textContent = 'Share my screen';
+      }
+    });
+
+    chatForm.addEventListener('submit', async (e) => {
       e.preventDefault();
       const msg = chatInput.value.trim();
       if (msg) {
         appendMessage('You', msg);
+        console.log('=== CHAT FORM SUBMITTED ===');
+        console.log('window.electronAPI available:', typeof window.electronAPI);
+        console.log('window.electronAPI.sendMessage available:', typeof window.electronAPI?.sendMessage);
+        console.log('Screenshot available:', !!screenshotBase64);
+        
         if (window.electronAPI && window.electronAPI.sendMessage) {
           try {
-            console.log('Sending message to backend:', msg);
             loadingDiv.style.display = '';
+            // Send message with screenshot if available
             window.electronAPI.sendMessage(msg, screenshotBase64);
           } catch (err) {
             appendMessage('Error', 'Failed to send message.', true);
@@ -135,11 +201,13 @@
             loadingDiv.style.display = 'none';
           }
         } else {
+          console.error('Required Electron APIs not available in renderer');
           appendMessage('Error', 'Electron API not available.', true);
         }
         chatInput.value = '';
       }
     });
+
     if (window.electronAPI && window.electronAPI.onMessage) {
       window.electronAPI.onMessage((msg) => {
         loadingDiv.style.display = 'none';
@@ -155,6 +223,7 @@
         }
       });
     }
+
     // Close button (collapse to icon)
     document.getElementById('close-btn').addEventListener('click', () => {
       console.log('Close button clicked!');

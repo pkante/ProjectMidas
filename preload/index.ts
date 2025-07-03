@@ -1,8 +1,17 @@
+console.log('=== PRELOAD SCRIPT LOADED ===');
+console.log('Node.js version:', process.versions.node);
+console.log('Electron version:', process.versions.electron);
+
 // Use require instead of import for Electron APIs in preload context
 // console.log('Preload script path:', __filename);
 console.log('Electron version:', process.versions.electron);
 
-const { contextBridge, ipcRenderer, desktopCapturer, screen: electronScreen } = require('electron');
+const { contextBridge, ipcRenderer } = require('electron');
+
+console.log('=== ELECTRON APIS ===');
+console.log('contextBridge:', typeof contextBridge);
+console.log('ipcRenderer:', typeof ipcRenderer);
+console.log('require("electron"):', typeof require('electron'));
 
 contextBridge.exposeInMainWorld('electronAPI', {
   sendMessage: (msg: string, screenshotBase64?: string) => ipcRenderer.send('chat:send', msg, screenshotBase64),
@@ -16,37 +25,15 @@ contextBridge.exposeInMainWorld('electronAPI', {
     return await ipcRenderer.invoke('get-window-position');
   },
   captureScreenshot: async () => {
-    const primaryDisplay = (electronScreen as any).getPrimaryDisplay();
-    const sources = await desktopCapturer.getSources({
-      types: ['screen'],
-      thumbnailSize: {
-        width: primaryDisplay.size.width,
-        height: primaryDisplay.size.height
-      }
-    });
-    if (sources.length === 0) return null;
-    // Find the source that matches the primary display
-    let screenSource = sources[0];
-    for (const source of sources) {
-      if (source.display_id === `${primaryDisplay.id}`) {
-        screenSource = source;
-        break;
-      }
-    }
-    const dataUrl = screenSource.thumbnail.toDataURL();
-    // Permission check: if screenshot is too small, likely permission issue
-    if (!dataUrl || dataUrl.length < 10000) {
-      ipcRenderer.send('show-screen-permission-dialog');
+    console.log('=== CAPTURE SCREENSHOT CALLED ===');
+    try {
+      const dataUrl = await ipcRenderer.invoke('capture-screenshot');
+      console.log('Screenshot captured via IPC, result:', dataUrl ? 'success' : 'failed');
+      return dataUrl;
+    } catch (error) {
+      console.error('Error capturing screenshot via IPC:', error);
       return null;
     }
-    return dataUrl;
-  },
-  captureAndSaveScreenshot: async () => {
-    const dataUrl = await window.electronAPI.captureScreenshot();
-    if (dataUrl) {
-      ipcRenderer.send('save-debug-screenshot', dataUrl);
-    }
-    return dataUrl;
   },
 });
 
@@ -61,7 +48,5 @@ window.addEventListener('DOMContentLoaded', () => {
 });
 
 console.log('Preload script loaded!');
-console.log('typeof electronScreen:', typeof electronScreen);
-console.log('typeof desktopCapturer:', typeof desktopCapturer);
 console.log('typeof ipcRenderer:', typeof ipcRenderer);
 console.log('typeof contextBridge:', typeof contextBridge); 
