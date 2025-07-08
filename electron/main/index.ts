@@ -2,6 +2,9 @@
 require('dotenv').config();
 console.log('Environment variables loaded from .env file');
 console.log('OPENAI_API_KEY available:', !!process.env.OPENAI_API_KEY);
+if (!process.env.OPENAI_API_KEY) {
+  console.warn('[DEBUG] No OPENAI_API_KEY found in .env file!');
+}
 
 import { app, BrowserWindow, ipcMain, screen } from 'electron';
 import path from 'path';
@@ -11,12 +14,20 @@ const pathModule = require('path');
 const { dialog, shell } = require('electron');
 const child_process = require('child_process');
 const { desktopCapturer } = require('electron');
+const { spawn } = require('child_process');
+const { spawnSync } = require('child_process');
 // const { contextBridge, ipcRenderer, desktopCapturer } = require('electron');
 
 const ICON_SIZE = 64;
 const CHAT_WIDTH = 400;
 const CHAT_HEIGHT = 500;
 let overlayWindow: BrowserWindow | null = null;
+
+// --- Background OCR State ---
+let ocrPaused = false;
+let ocrInterval: NodeJS.Timeout | null = null;
+const ocrDir = path.resolve(__dirname, '../../../data_processing/OCR_files');
+if (!fs.existsSync(ocrDir)) fs.mkdirSync(ocrDir, { recursive: true });
 
 function getDefaultIconPosition() {
   const { width, height } = screen.getPrimaryDisplay().workAreaSize;
@@ -155,17 +166,40 @@ ipcMain.on('collapse-to-icon', () => {
 
 // --- OpenAI ChatGPT Integration ---
 ipcMain.on('chat:send', async (event, msg, screenshotBase64: string | null) => {
-  // Always load the API key from environment variables
   const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
   if (!OPENAI_API_KEY) {
     event.sender.send('chat:message', 'Error: OpenAI API key not set. Please add it to your .env file.');
     return;
   }
   try {
+    // 1. Query ChromaDB for top 3 similar OCR entries
+    const chromaResult = spawnSync(
+      path.resolve(__dirname, '../../../data_processing/venv/bin/python'),
+      [path.resolve(__dirname, '../../../data_processing/query_chroma.py'), msg],
+      { encoding: 'utf-8' }
+    );
+    let context = '';
+    if (chromaResult.status === 0 && chromaResult.stdout) {
+      try {
+        const topResults = JSON.parse(chromaResult.stdout);
+        context = topResults.map((r: any, i: number) => `Context ${i+1}: ${r.text}`).join('\n');
+      } catch (e) {
+        console.error('Failed to parse ChromaDB output:', e, chromaResult.stdout);
+      }
+    } else {
+      console.error('ChromaDB query failed:', chromaResult.stderr);
+    }
+
+    // 2. Build the prompt for the LLM
     let messages = [
-      { role: 'system', content: 'You are a helpful assistant.' },
-      { role: 'user', content: msg },
+      { role: 'system', content: 'You are a helpful assistant. Use the following context from the user\'s screen to answer their question.' },
     ];
+    if (context) {
+      messages.push({ role: 'system', content: context });
+    }
+    messages.push({ role: 'user', content: msg });
+
+    // 3. Call OpenAI Chat API as before
     let data, reply;
     if (screenshotBase64) {
       // Send screenshot as image to OpenAI vision endpoint
@@ -192,7 +226,6 @@ ipcMain.on('chat:send', async (event, msg, screenshotBase64: string | null) => {
       });
       data = await response.json();
     } else {
-      // Fallback to text-only
       const response = await fetch('https://api.openai.com/v1/chat/completions', {
         method: 'POST',
         headers: {
@@ -207,7 +240,7 @@ ipcMain.on('chat:send', async (event, msg, screenshotBase64: string | null) => {
       });
       data = await response.json();
     }
-    if (data.error) {
+    if (data && data.error) {
       reply = `OpenAI Error: ${data.error.message || JSON.stringify(data.error)}`;
     } else {
       reply = data.choices?.[0]?.message?.content || 'No response from OpenAI.';
@@ -237,7 +270,88 @@ ipcMain.handle('get-window-position', () => {
   return { x: 0, y: 0 };
 });
 
-app.whenReady().then(createOverlayWindow);
+function saveBase64PngToFile(base64: string, filePath: string) {
+  const data = base64.replace(/^data:image\/png;base64,/, '');
+  fs.writeFileSync(filePath, data, 'base64');
+}
+
+function runOcrOnImage(imagePath: string, ocrOutputPath: string) {
+  const py = spawn(path.resolve(__dirname, '../../../data_processing/venv/bin/python'), [path.resolve(__dirname, '../../../data_processing/ocr.py'), imagePath, ocrOutputPath]);
+  py.stdout.on('data', (data: Buffer) => {
+    console.log('[OCR Python]', data.toString());
+  });
+  py.stderr.on('data', (data: Buffer) => {
+    console.error('[OCR Python ERROR]', data.toString());
+  });
+  py.on('close', (code: number) => {
+    console.log(`[OCR Python] exited with code ${code}`);
+  });
+}
+
+function startOcrInterval() {
+  if (ocrInterval) clearInterval(ocrInterval);
+  ocrInterval = setInterval(async () => {
+    if (ocrPaused) return;
+    // Take screenshot
+    const primaryDisplay = screen.getPrimaryDisplay();
+    const sources = await desktopCapturer.getSources({
+      types: ['screen'],
+      thumbnailSize: {
+        width: primaryDisplay.size.width,
+        height: primaryDisplay.size.height
+      }
+    });
+    if (!sources.length) return;
+    let screenSource = sources[0];
+    for (const source of sources) {
+      if (source.display_id === `${primaryDisplay.id}`) {
+        screenSource = source;
+        break;
+      }
+    }
+    const dataUrl = screenSource.thumbnail.toDataURL();
+    if (!dataUrl || dataUrl.length < 10000) return;
+    // Save screenshot
+    const ts = Date.now();
+    const imgPath = path.join(ocrDir, `background_${ts}.png`);
+    saveBase64PngToFile(dataUrl, imgPath);
+    console.log(`[Background OCR] Screenshot taken: ${imgPath}`);
+    // OCR output path
+    const ocrOutPath = path.join(ocrDir, `background_${ts}.txt`);
+    // Warn if OCR script is missing
+    const ocrScriptPath = path.resolve(__dirname, '../../../data_processing/ocr.py');
+    if (!fs.existsSync(ocrScriptPath)) {
+      console.warn(`[Background OCR] WARNING: OCR script not found at ${ocrScriptPath}`);
+    }
+    runOcrOnImage(imgPath, ocrOutPath);
+  }, 10000); // 10 seconds
+}
+
+ipcMain.on('ocr:set-paused', (_event, paused: boolean) => {
+  ocrPaused = paused;
+  console.log('[Background OCR] Paused:', ocrPaused);
+  if (!ocrPaused) {
+    startOcrInterval();
+  } else if (ocrInterval) {
+    clearInterval(ocrInterval);
+    ocrInterval = null;
+  }
+});
+
+ipcMain.on('ocr:process-screenshot', (_event, screenshotBase64: string) => {
+  // Save screenshot and process for OCR
+  const ts = Date.now();
+  const imgPath = path.join(ocrDir, `shared_${ts}.png`);
+  saveBase64PngToFile(screenshotBase64, imgPath);
+  const ocrOutPath = path.join(ocrDir, `shared_${ts}.txt`);
+  runOcrOnImage(imgPath, ocrOutPath);
+});
+
+// Start background OCR on app ready
+app.whenReady().then(() => {
+  createOverlayWindow();
+  if (!ocrPaused) startOcrInterval();
+});
 
 app.on('window-all-closed', () => {
   if (process.platform !== 'darwin') app.quit();
@@ -260,8 +374,6 @@ ipcMain.on('show-screen-permission-dialog', () => {
     }
   });
 });
-
-
 
 // Screenshot capture handlers
 ipcMain.handle('capture-screenshot', async () => {

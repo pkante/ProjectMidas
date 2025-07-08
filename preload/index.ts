@@ -35,6 +35,9 @@ contextBridge.exposeInMainWorld('electronAPI', {
       return null;
     }
   },
+  // New APIs for background OCR
+  setOcrPaused: (paused: boolean) => ipcRenderer.send('ocr:set-paused', paused),
+  triggerOcrFromShareScreen: (screenshotBase64: string) => ipcRenderer.send('ocr:process-screenshot', screenshotBase64),
 });
 
 // Preload script
