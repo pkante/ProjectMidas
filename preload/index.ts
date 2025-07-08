@@ -38,6 +38,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
   // New APIs for background OCR
   setOcrPaused: (paused: boolean) => ipcRenderer.send('ocr:set-paused', paused),
   triggerOcrFromShareScreen: (screenshotBase64: string) => ipcRenderer.send('ocr:process-screenshot', screenshotBase64),
+  // New API for dynamic resizing
+  resizeWindow: (height: number) => ipcRenderer.send('resize-window', height),
 });
 
 // Preload script

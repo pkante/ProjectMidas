@@ -270,6 +270,13 @@ ipcMain.handle('get-window-position', () => {
   return { x: 0, y: 0 };
 });
 
+ipcMain.on('resize-window', (_event, height: number) => {
+  if (overlayWindow) {
+    const bounds = overlayWindow.getBounds();
+    overlayWindow.setBounds({ ...bounds, height: Math.round(height) });
+  }
+});
+
 function saveBase64PngToFile(base64: string, filePath: string) {
   const data = base64.replace(/^data:image\/png;base64,/, '');
   fs.writeFileSync(filePath, data, 'base64');

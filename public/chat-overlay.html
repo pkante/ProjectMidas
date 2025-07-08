@@ -249,6 +249,19 @@
       msgDiv.innerHTML = `<span class="chat-message-content">${marked.parse(text)}</span>`;
       chatWindow.appendChild(msgDiv);
       chatWindow.scrollTop = chatWindow.scrollHeight;
+      resizeToFitContent();
+    }
+
+    function resizeToFitContent() {
+      const overlay = document.getElementById('overlay');
+      if (!overlay) return;
+      const minHeight = 500;
+      const maxHeight = 900;
+      const contentHeight = overlay.scrollHeight + 40;
+      const newHeight = Math.max(minHeight, Math.min(contentHeight, maxHeight));
+      if (window.electronAPI && window.electronAPI.resizeWindow) {
+        window.electronAPI.resizeWindow(newHeight);
+      }
     }
 
     // Share screen button functionality
