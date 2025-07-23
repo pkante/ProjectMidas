@@ -1,6 +1,6 @@
 # ProjectMidas
 
-ProjectMidas is a live AI assistant that overlays your desktop, captures your screen, performs OCR (Optical Character Recognition), and augments your queries with context from your recent screen content. It leverages OpenAI's GPT-4o for chat and ChromaDB for persistent, semantic search over your screen's text history.
+Midas is a live AI assistant that overlays your desktop, captures your screen, performs OCR (Optical Character Recognition), and augments your queries with context from your recent screen content. It leverages OpenAI's GPT-4o for chat and ChromaDB for persistent, semantic search over your screen's text history. As you continue to use Midas, it will learn more about you through your screen data, allowing for better responses. All data is stored on a local DB on your computer
 
 ---
 
