@@ -27,7 +27,7 @@ Midas is a live AI assistant that overlays your desktop, captures your screen, p
 ### 2. Clone the Repository
 
 ```bash
-git clone <your-repo-url>
+git clone <repo-url>
 cd ProjectMidas
 ```
 
@@ -117,17 +117,4 @@ This will build the Electron app and launch the overlay window.
 - **ChromaDB Storage:**
   - Data is stored in `data_processing/chroma_db/`.
 
----
 
-## License
-
-MIT License
-
----
-
-## Acknowledgments
-
-- [OpenAI](https://openai.com/)
-- [ChromaDB](https://www.trychroma.com/)
-- [Electron](https://www.electronjs.org/)
-- [Tesseract OCR](https://github.com/tesseract-ocr/tesseract)
